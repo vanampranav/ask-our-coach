@@ -23,6 +23,7 @@ api_key = os.getenv("OPENAI_API_KEY")
 
 # Initialize Redis client (make sure Redis is running locally)
 #redis_client = redis.Redis(host='127.0.0.1', port=6379, db=0, decode_responses=True)
+
 redis_url = os.getenv("REDIS_URL", "redis://127.0.0.1:6379")
 redis_client = redis.from_url(redis_url, decode_responses=True)
 
@@ -41,23 +42,22 @@ def chat_with_gpt():
         data = request.get_json()
         prompt = data.get('prompt', '')
         force_new = data.get('forceNew', False)
+        user_session = data.get('userSession', {})  # Get user session data
 
         if not prompt:
             return jsonify({"error": "Prompt is required"}), 400
 
+        # Log user session data for debugging
+        print("User Session Data:", user_session)
+
         # Add a unique identifier to the prompt
         unique_id = str(uuid.uuid4())[:8]
         timestamp = int(time.time())
-        
-        # Cache key will be the original prompt
-        cache_key = prompt
-        
-        # Actual prompt sent to AI includes the unique identifier
         unique_prompt = f"{prompt}\n\nRequest-ID: {unique_id}-{timestamp}"
 
         # Redis cache (skip if force_new is True)
         if not force_new:
-            cached_response = redis_client.get(cache_key)  
+            cached_response = redis_client.get(prompt)
             if cached_response:
                 return jsonify({"reply": json.loads(cached_response)})
 
@@ -178,10 +178,10 @@ Remember: ALWAYS respond in English regardless of the input language."""},
         )
 
         reply = response.choices[0].message.content
-        
-        # Don't cache if force_new is True
+
+        # Cache the response
         if not force_new:
-            redis_client.setex(cache_key, 24 * 60 * 60, json.dumps(reply))  # cache for 24 hours
+            redis_client.setex(prompt, 24 * 60 * 60, json.dumps(reply))  # Cache for 24 hours
 
         return jsonify({"reply": reply})
 
@@ -265,4 +265,5 @@ def check_cache():
 # Run locally
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000, debug=True)
+
 
